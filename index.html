@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bộ điều khiển E-Paper Bluetooth</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --text: #0f172a;
+      --subtext: #475569;
+      --border: #e2e8f0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 24px 16px;
+    }
+
+    h1 { font-size: 1.5rem; text-align: center; margin-bottom: 24px; }
+    
+    .card {
+      background: var(--card);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+      border: 1px solid var(--border);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .badge {
+      font-size: 0.85rem;
+      padding: 4px 12px;
+      border-radius: 20px;
+      background: #fee2e2;
+      color: #991b1b;
+      font-weight: 600;
+    }
+
+    .badge.connected {
+      background: #dcfce7;
+      color: #166534;
+    }
+
+    .form-group {
+      margin-top: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    label { font-size: 0.9rem; font-weight: 600; color: var(--subtext); }
+    
+    select, input[type="file"], input[type="text"] {
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      font-size: 0.95rem;
+    }
+
+    button {
+      background: var(--primary);
+      color: white;
+      border: none;
+      padding: 12px 18px;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    button:hover { background: var(--primary-hover); }
+    button:disabled { background: #cbd5e1; cursor: not-allowed; }
+
+    canvas {
+      width: 100%;
+      max-width: 300px;
+      border: 1px solid var(--border);
+      background: #fff;
+      display: block;
+      margin: 12px auto;
+      image-rendering: pixelated;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Bộ Điều Khiển Màn Hình E-Paper</h1>
+
+  <!-- Thẻ Kết nối Bluetooth -->
+  <div class="card status-bar">
+    <div>
+      <strong>Trạng thái Bluetooth:</strong>
+      <div style="font-size: 0.85rem; color: var(--subtext);" id="device-name">Chưa chọn thiết bị</div>
+    </div>
+    <span class="badge" id="status-badge">Đã ngắt kết nối</span>
+  </div>
+
+  <div class="card">
+    <button id="btn-connect" style="width: 100%;">Thêm / Kết nối thiết bị E-Paper</button>
+  </div>
+
+  <!-- Thẻ Cấu hình Màn hình & Tải File -->
+  <div class="card">
+    <h3>Tải File từ App E-Ink Clock</h3>
+
+    <div class="form-group">
+      <label for="screen-size">Chọn loại màn hình:</label>
+      <select id="screen-size">
+        <option value="250x128">2.13 inch (250 x 128)</option>
+        <option value="296x128">2.9 inch (296 x 128)</option>
+        <option value="400x300">4.2 inch (400 x 300)</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="file-input">Chọn File (Ảnh, BIN, JSON cấu hình Clock):</label>
+      <input type="file" id="file-input" accept="image/*,.bin,.json">
+    </div>
+
+    <!-- Khung Xem trước (Preview) -->
+    <canvas id="preview-canvas" width="250" height="128"></canvas>
+
+    <button id="btn-upload" style="width: 100%; margin-top: 12px;" disabled>Truyền dữ liệu tới màn hình</button>
+  </div>
+
+  <script>
+    let bluetoothDevice = null;
+    let gattServer = null;
+    let txCharacteristic = null;
+
+    const btnConnect = document.getElementById('btn-connect');
+    const btnUpload = document.getElementById('btn-upload');
+    const statusBadge = document.getElementById('status-badge');
+    const deviceName = document.getElementById('device-name');
+    const fileInput = document.getElementById('file-input');
+    const canvas = document.getElementById('preview-canvas');
+    const ctx = canvas.getContext('2d');
+    const screenSizeSelect = document.getElementById('screen-size');
+
+    // 1. Xử lý Kết nối Bluetooth (Web Bluetooth API)
+    btnConnect.addEventListener('click', async () => {
+      try {
+        bluetoothDevice = await navigator.bluetooth.requestDevice({
+          acceptAllDevices: true,
+          optionalServices: ['6e400001-b5a3-f393-e0a9-e50e24dcca9e'] // UUID chuẩn Nordic UART (hoặc đổi thành UUID màn hình của bạn)
+        });
+
+        deviceName.textContent = bluetoothDevice.name || "Thiết bị không tên";
+        statusBadge.textContent = "Đang kết nối...";
+        
+        gattServer = await bluetoothDevice.gatt.connect();
+        statusBadge.textContent = "Đã kết nối";
+        statusBadge.classList.add('connected');
+        btnUpload.disabled = false;
+
+      } catch (error) {
+        console.error("Lỗi Bluetooth:", error);
+        alert("Không thể kết nối Bluetooth: " + error.message);
+        statusBadge.textContent = "Đã ngắt kết nối";
+        statusBadge.classList.remove('connected');
+      }
+    });
+
+    // 2. Thay đổi Kích thước Canvas xem trước
+    screenSizeSelect.addEventListener('change', (e) => {
+      const [w, h] = e.target.value.split('x');
+      canvas.width = parseInt(w);
+      canvas.height = parseInt(h);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    });
+
+    // 3. Xử lý Đọc & Render File từ App E-Ink
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      // Xử lý File Ảnh (PNG, JPG...)
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const img = new Image();
+          img.onload = () => {
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            ditherToBWR(ctx, canvas.width, canvas.height); // Chuyển đổi thành màu E-ink Đen/Trắng/Đỏ
+          };
+          img.src = event.target.result;
+        };
+        reader.readAsDataURL(file);
+      } 
+      // Xử lý File JSON Cấu hình Đồng hồ từ App
+      else if (file.name.endsWith('.json')) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const config = JSON.parse(event.target.result);
+          renderClockPreview(config);
+        };
+        reader.readAsText(file);
+      }
+    });
+
+    // Thuật toán Đen/Trắng cơ bản cho E-Ink
+    function ditherToBWR(ctx, width, height) {
+      const imgData = ctx.getImageData(0, 0, width, height);
+      const data = imgData.data;
+      for (let i = 0; i < data.length; i += 4) {
+        const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+        const color = avg > 128 ? 255 : 0;
+        data[i] = color;     // Red
+        data[i + 1] = color; // Green
+        data[i + 2] = color; // Blue
+      }
+      ctx.putImageData(imgData, 0, 0);
+    }
+
+    // Vẽ giao diện Clock từ File Config JSON
+    function renderClockPreview(config) {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#000000";
+      ctx.font = "bold 32px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(config.time || "12:00", canvas.width / 2, canvas.height / 2);
+    }
+
+    // 4. Gửi Dữ liệu qua Bluetooth
+    btnUpload.addEventListener('click', async () => {
+      if (!gattServer || !gattServer.connected) {
+        alert("Vui lòng kết nối Bluetooth trước!");
+        return;
+      }
+      alert("Đang truyền dữ liệu file đến màn hình qua Bluetooth...");
+      // Đoạn mã gửi ArrayBuffer/Bytes qua Characteristic sẽ đặt ở đây
+    });
+  </script>
+</body>
+</html>
